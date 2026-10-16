@@ -1,35 +1,16 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+[RequireComponent(typeof(Rigidbody))]
 public class BallBooster : MonoBehaviour
 {
-    public float kickPower = 1.5f;
-    public float maxSpeed = 5f;
+    public float maxSpeed = 10f;
     public float nudgePower = 0.8f;
-
-    // Works with Keyboard R, Gamepad Y/Triangle, and Generic USB Controller Trigger/Buttons!
-    public InputAction resetAction = new InputAction("Reset", binding: "<Keyboard>/r");
 
     private Rigidbody rb;
     private Vector3 startPos;
-    private float stuckTime;
-
-    void OnEnable()
-    {
-        // Add Gamepad and Generic USB Joystick bindings automatically if not set in Inspector
-        if (resetAction.bindings.Count <= 1)
-        {
-            resetAction.AddBinding("<Gamepad>/buttonNorth"); // Y / Triangle
-            resetAction.AddBinding("<Joystick>/trigger");    // Primary button on generic USB controllers
-            resetAction.AddBinding("<HID>/button2");         // Secondary button on generic USB controllers
-        }
-        resetAction.Enable();
-    }
-
-    void OnDisable()
-    {
-        resetAction.Disable();
-    }
+    private float stuckTime = 0f;
+    private float lastSpeed = 0f;
 
     void Start()
     {
@@ -39,8 +20,31 @@ public class BallBooster : MonoBehaviour
 
     void Update()
     {
-        // Single check for Keyboard + Gamepad + USB Joystick!
-        if (resetAction.WasPressedThisFrame())
+        // Only allow manual ball reset during active play (not during goal celebrations or after match end)
+        if (rb.isKinematic) return;
+
+        bool resetPressed = false;
+
+        // Check Keyboard 'R'
+        if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
+        {
+            resetPressed = true;
+        }
+
+        // Check Gamepad 'Y' (buttonNorth) across all connected controllers
+        if (!resetPressed)
+        {
+            foreach (var pad in Gamepad.all)
+            {
+                if (pad.buttonNorth.wasPressedThisFrame)
+                {
+                    resetPressed = true;
+                    break;
+                }
+            }
+        }
+
+        if (resetPressed)
         {
             ResetBall();
         }
@@ -48,54 +52,73 @@ public class BallBooster : MonoBehaviour
 
     void FixedUpdate()
     {
+        // Pause physics logic while the ball is frozen during a goal celebration
+        if (rb.isKinematic) return;
+
+        // Auto-reset if the ball flies off the table
         if (Vector3.Distance(transform.position, startPos) > 3.5f || transform.position.y < startPos.y - 0.5f)
         {
             ResetBall();
             return;
         }
 
-        Vector3 v = Vector3.ClampMagnitude(rb.linearVelocity, maxSpeed);
-        v.y = Mathf.Min(v.y, 2f);
-        rb.linearVelocity = v;
+        Vector3 v = rb.linearVelocity;
 
-        stuckTime = rb.linearVelocity.magnitude < 0.05f ? stuckTime + Time.fixedDeltaTime : 0f;
-        if (stuckTime > 1.5f)
+        // Keep the ball flat on the table surface
+        v.y = Mathf.Clamp(v.y, -1f, 0.5f);
+
+        // HARD CAP: Absolutely prevent speed from exceeding maxSpeed
+        if (v.magnitude > maxSpeed)
         {
-            rb.AddForce(new Vector3(Random.Range(-1f, 1f), 0f, Random.Range(-1f, 1f)).normalized * nudgePower, ForceMode.Impulse);
-            stuckTime = 0f;
+            v = v.normalized * maxSpeed;
         }
-    }
 
-    void OnCollisionEnter(Collision col)
-    {
-        FoosballRod rod = col.gameObject.GetComponentInParent<FoosballRod>();
-        if (rod != null)
+        rb.linearVelocity = v;
+        lastSpeed = v.magnitude;
+
+        // Auto-nudge ONLY if completely stopped in open space for 2.5 seconds
+        if (rb.linearVelocity.magnitude < 0.03f)
         {
-            // Only boost when the rod is actively tilted/kicking
-            float currentAngle = Mathf.Abs(Mathf.DeltaAngle(0f, rod.transform.localEulerAngles.x)) +
-                                 Mathf.Abs(Mathf.DeltaAngle(0f, rod.transform.localEulerAngles.z));
-
-            if (currentAngle > 8f)
+            stuckTime += Time.fixedDeltaTime;
+            if (stuckTime > 2.5f)
             {
-                Vector3 dir = col.contacts[0].normal;
-                dir.y = Mathf.Clamp(dir.y, 0f, 0.15f);
-                rb.AddForce(dir.normalized * kickPower, ForceMode.Impulse);
+                Vector3 gentlePush = new Vector3(Random.Range(-1f, 1f), 0f, Random.Range(-1f, 1f)).normalized;
+                rb.AddForce(gentlePush * nudgePower, ForceMode.VelocityChange);
+                stuckTime = 0f;
             }
         }
         else
         {
-            // Hit a wall or table edge: prevent sudden physics speed spikes
-            rb.linearVelocity = Vector3.ClampMagnitude(rb.linearVelocity, maxSpeed * 0.7f);
+            stuckTime = 0f;
         }
+    }
+
+    void OnCollisionEnter(Collision collision)
+    {
+        if (rb.isKinematic) return;
+
+        stuckTime = 0f;
+
+        float currentSpeed = rb.linearVelocity.magnitude;
+
+        // Anti-Shoot Guard: If it hit a static wall (not a player) and suddenly gained speed out of nowhere, clamp it back
+        if (collision.gameObject.GetComponentInParent<FoosballRod>() == null && currentSpeed > lastSpeed * 1.15f && lastSpeed > 0.05f)
+        {
+            rb.linearVelocity = rb.linearVelocity.normalized * lastSpeed;
+        }
+    }
+
+    void OnCollisionStay(Collision collision)
+    {
+        stuckTime = 0f;
     }
 
     public void ResetBall()
     {
+        stuckTime = 0f;
+        lastSpeed = 0f;
+        transform.position = startPos;
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
-        transform.position = startPos;
-
-        Vector3 serveDir = new Vector3(Random.Range(-1f, 1f), 0f, Random.Range(-1f, 1f)).normalized;
-        rb.AddForce(serveDir * nudgePower, ForceMode.Impulse);
     }
 }
