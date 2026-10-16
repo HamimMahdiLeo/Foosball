@@ -8,6 +8,7 @@ public class FoosballRod : MonoBehaviour
     public float minAngle = -90f;
 
     public float maxAngle = 90f;
+    
 
     private Vector3 startPos;
     private Quaternion startRot;
