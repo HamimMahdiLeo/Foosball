@@ -57,7 +57,7 @@ public class PauseMenuController : MonoBehaviour
 
     public void MainMenu()
     {
-        Time.timeScale = 1f;
-        SceneManager.LoadScene("MainMenu"); // Matches your scene name
+        Time.timeScale = 1f; // Unfreeze the game before loading
+        SceneManager.LoadScene("Main Menu"); // Redirects to the Main Menu scene
     }
 }
