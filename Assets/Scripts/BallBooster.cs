@@ -23,6 +23,7 @@ public class BallBooster : MonoBehaviour
         // Only allow manual ball reset during active play (not during goal celebrations or after match end)
         if (rb.isKinematic) return;
 
+        /* --- MANUAL RESET DISABLED FOR NOW ---
         bool resetPressed = false;
 
         // Check Keyboard 'R'
@@ -48,6 +49,7 @@ public class BallBooster : MonoBehaviour
         {
             ResetBall();
         }
+        ---------------------------------------- */
     }
 
     void FixedUpdate()
